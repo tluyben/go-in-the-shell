@@ -143,18 +143,52 @@ func (a *App) moveDown() {
 
 func (a *App) executeCurrentCell() {
 	cell := &a.cells[a.currentCell]
-	interpreter := "bash"
 	content := cell.content
 
+	// Determine the language and content
+	language := "bash"
 	if strings.HasPrefix(content, "#") {
 		parts := strings.SplitN(content, "\n", 2)
 		if len(parts) == 2 {
-			interpreter = strings.TrimPrefix(parts[0], "#")
+			language = strings.TrimPrefix(parts[0], "#")
 			content = parts[1]
 		}
 	}
 
-	cmd := exec.Command(interpreter, "-c", content)
+	// Create a temporary file
+	tmpfile, err := os.CreateTemp("", fmt.Sprintf("cell-*.%s", getFileExtension(language)))
+	if err != nil {
+		cell.result = fmt.Sprintf("Error creating temp file: %v", err)
+		a.updateView()
+		return
+	}
+	defer os.Remove(tmpfile.Name())
+
+	// Write content to the temporary file
+	if _, err := tmpfile.Write([]byte(content)); err != nil {
+		cell.result = fmt.Sprintf("Error writing to temp file: %v", err)
+		a.updateView()
+		return
+	}
+	tmpfile.Close()
+
+	// Execute the code based on the language
+	var cmd *exec.Cmd
+	switch language {
+	case "python":
+		cmd = exec.Command("python", tmpfile.Name())
+	case "go":
+		cmd = exec.Command("go", "run", tmpfile.Name())
+	case "perl":
+		cmd = exec.Command("perl", tmpfile.Name())
+	default:
+		cmd = exec.Command("bash", "-c", content)
+	}
+
+	// Set the working directory to the current directory
+	cmd.Dir = "."
+
+	// Run the command and capture output
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		cell.result = fmt.Sprintf("Error: %v\n%s", err, output)
@@ -167,7 +201,7 @@ func (a *App) executeCurrentCell() {
 		a.cells = append(a.cells, Cell{content: "", result: ""})
 	}
 	a.currentCell++
-	
+
 	a.updateView()
 }
 
@@ -178,7 +212,14 @@ func (a *App) editInline() {
 
 func (a *App) editWithVim() {
 	cell := &a.cells[a.currentCell]
-	tmpfile, err := os.CreateTemp("", "cell-*.txt")
+	
+	// Determine the language and file extension
+	language := "txt"
+	if strings.HasPrefix(cell.content, "#") {
+		language = strings.TrimPrefix(strings.SplitN(cell.content, "\n", 2)[0], "#")
+	}
+	
+	tmpfile, err := os.CreateTemp("", fmt.Sprintf("cell-*.%s", getFileExtension(language)))
 	if err != nil {
 		cell.result = fmt.Sprintf("Error creating temp file: %v", err)
 		a.updateView()
@@ -232,6 +273,18 @@ func (a *App) removeCurrentCell() {
 		}
 		
 		a.updateView()
+	}
+}
+func getFileExtension(language string) string {
+	switch language {
+	case "python":
+		return "py"
+	case "go":
+		return "go"
+	case "perl":
+		return "pl"
+	default:
+		return "txt"
 	}
 }
 
