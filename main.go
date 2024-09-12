@@ -138,11 +138,6 @@ func (a *App) moveDown() {
 	if a.currentCell < len(a.cells)-1 {
 		a.currentCell++
 		a.updateView()
-	} else if a.currentCell == len(a.cells)-1 && (a.cells[a.currentCell].content != "" || a.cells[a.currentCell].result != "") {
-		// If we're at the last cell and it's not empty, create a new cell
-		a.cells = append(a.cells, Cell{content: "", result: ""})
-		a.currentCell++
-		a.updateView()
 	}
 }
 
@@ -167,12 +162,12 @@ func (a *App) executeCurrentCell() {
 		cell.result = string(output)
 	}
 
-	lastCell := &a.cells[len(a.cells)-1]
-	if lastCell.content != "" || lastCell.result != "" {
+	// Move to the next cell or create a new one if at the end
+	if a.currentCell == len(a.cells)-1 {
 		a.cells = append(a.cells, Cell{content: "", result: ""})
 	}
-
-	a.currentCell = len(a.cells) - 1
+	a.currentCell++
+	
 	a.updateView()
 }
 
@@ -221,8 +216,8 @@ func (a *App) editWithVim() {
 func (a *App) copyCurrentCell() {
 	newCell := a.cells[a.currentCell]
 	newCell.result = ""
-	a.cells = append(a.cells, newCell)
-	a.currentCell = len(a.cells) - 1
+	a.cells = append(a.cells[:a.currentCell+1], append([]Cell{newCell}, a.cells[a.currentCell+1:]...)...)
+	a.currentCell++
 	a.updateView()
 }
 
