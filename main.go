@@ -75,6 +75,8 @@ func (a *App) Run() error {
 			a.moveDown()
 		case tcell.KeyEnter:
 			a.executeCurrentCell()
+		case tcell.KeyBackspace, tcell.KeyBackspace2:
+			a.removeCurrentCell()
 		case tcell.KeyRune:
 			switch event.Rune() {
 			case ' ':
@@ -143,6 +145,7 @@ func (a *App) moveDown() {
 		a.updateView()
 	}
 }
+
 func (a *App) executeCurrentCell() {
 	cell := &a.cells[a.currentCell]
 	interpreter := "bash"
@@ -221,6 +224,20 @@ func (a *App) copyCurrentCell() {
 	a.cells = append(a.cells, newCell)
 	a.currentCell = len(a.cells) - 1
 	a.updateView()
+}
+
+func (a *App) removeCurrentCell() {
+	if len(a.cells) > 1 {
+		// Remove the current cell
+		a.cells = append(a.cells[:a.currentCell], a.cells[a.currentCell+1:]...)
+		
+		// Adjust the current cell index if necessary
+		if a.currentCell >= len(a.cells) {
+			a.currentCell = len(a.cells) - 1
+		}
+		
+		a.updateView()
+	}
 }
 
 func main() {
