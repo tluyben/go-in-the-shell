@@ -179,6 +179,13 @@ func Execute(command string) (string, error) {
 	screen := NewScreen(width, height)
 	var wg sync.WaitGroup
 
+	// Handle input
+	wg.Add(1)
+	go func() {
+		//defer wg.Done()
+		io.Copy(ptmx, os.Stdin)
+	}()
+
 	// Handle output
 	wg.Add(1)
 	go func() {
@@ -194,12 +201,9 @@ func Execute(command string) (string, error) {
 	}()
 
 	// Wait for either the command to finish or input to end
-	wg.Add(1)
 	go func() {
-		select {
-		case <-cmdDone:
-			ptmx.Close()
-		}
+		<-cmdDone
+    	ptmx.Close()
 		wg.Done() // Decrement the wait group when the command is done
 	}()
 
@@ -211,19 +215,19 @@ func Execute(command string) (string, error) {
 	return screen.String(), nil
 }
 
-func main() {
-	if len(os.Args) < 2 {
-		fmt.Println("Usage: go run aprocess.go <command>")
-		os.Exit(1)
-	}
+// func main() {
+// 	if len(os.Args) < 2 {
+// 		fmt.Println("Usage: go run aprocess.go <command>")
+// 		os.Exit(1)
+// 	}
 
-	command := strings.Join(os.Args[1:], " ")
-	output, err := Execute(command)
-	if err != nil {
-		fmt.Printf("Error executing command: %v\n", err)
-		os.Exit(1)
-	}
+// 	command := strings.Join(os.Args[1:], " ")
+// 	output, err := Execute(command)
+// 	if err != nil {
+// 		fmt.Printf("Error executing command: %v\n", err)
+// 		os.Exit(1)
+// 	}
 
-	fmt.Println("Captured output:")
-	fmt.Println(output)
-}
+// 	fmt.Println("Captured output:")
+// 	fmt.Println(output)
+// }

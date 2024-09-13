@@ -8,7 +8,8 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
-	"github.com/tluyben/go-in-the-shell/aprocess" 
+	"github.com/tluyben/go-in-the-shell/aprocess"
+	"golang.org/x/term"
 )
 
 type Cell struct {
@@ -47,7 +48,7 @@ func (a *App) Run() error {
 		SetDoneFunc(func(key tcell.Key) {
 			if key == tcell.KeyEnter {
 				a.cells[a.currentCell].content = a.inputField.GetText()
-				a.executeCurrentCell()
+				a.executeCurrentCell(true)
 				a.app.SetRoot(a.textView, true)
 			} else if key == tcell.KeyEsc {
 				a.app.SetRoot(a.textView, true)
@@ -74,7 +75,7 @@ func (a *App) Run() error {
 		case tcell.KeyDown:
 			a.moveDown()
 		case tcell.KeyEnter:
-			a.executeCurrentCell()
+			a.executeCurrentCell(true)
 		case tcell.KeyBackspace, tcell.KeyBackspace2:
 			a.removeCurrentCell()
 		case tcell.KeyRune:
@@ -140,7 +141,7 @@ func (a *App) moveDown() {
 		a.updateView()
 	}
 }
-func (a *App) executeCurrentCell() {
+func (a *App) executeCurrentCell(doSuspend bool) {
 	cell := &a.cells[a.currentCell]
 	content := cell.content
 
@@ -183,21 +184,55 @@ func (a *App) executeCurrentCell() {
 		command = content
 	}
 
-	// Execute the command using aprocess.Execute
-	output, err := aprocess.Execute(command)
-	if err != nil {
-		cell.result = fmt.Sprintf("Error: %v\n%s", err, output)
+	// Suspend the application
+	if (!doSuspend) {
+		output, err := aprocess.Execute(command)
+		if err != nil {
+			cell.result = fmt.Sprintf("Error: %v\n%s", err, output)
+		} else {
+			cell.result = output
+		}
+
+		// Move to the next cell or create a new one if at the end
+		if a.currentCell == len(a.cells)-1 {
+			a.cells = append(a.cells, Cell{content: "", result: ""})
+		}
+
+		a.currentCell++
+
+		a.updateView()
 	} else {
-		cell.result = output
+		a.app.Suspend(func() {
+			// Save current terminal state
+			oldState, err := term.GetState(int(os.Stdin.Fd()))
+			if err != nil {
+				fmt.Printf("Error getting terminal state: %v\n", err)
+				return
+			}
+
+			// Ensure we restore the terminal state before returning
+			defer term.Restore(int(os.Stdin.Fd()), oldState)
+
+			output, err := aprocess.Execute(command)
+			if err != nil {
+				cell.result = fmt.Sprintf("Error: %v\n%s", err, output)
+			} else {
+				cell.result = output
+			}
+
+			// Move to the next cell or create a new one if at the end
+			if a.currentCell == len(a.cells)-1 {
+				a.cells = append(a.cells, Cell{content: "", result: ""})
+			}
+
+			a.currentCell++
+
+			a.updateView()
+
+			
+		})	
 	}
 
-	// Move to the next cell or create a new one if at the end
-	if a.currentCell == len(a.cells)-1 {
-		a.cells = append(a.cells, Cell{content: "", result: ""})
-	}
-	a.currentCell++
-
-	a.updateView()
 }
 func (a *App) editInline() {
 	a.inputField.SetText(a.cells[a.currentCell].content)
@@ -229,23 +264,41 @@ func (a *App) editWithVim() {
 	}
 	tmpfile.Close()
 
-	// Use aprocess.Execute to run vim
-	_, err = aprocess.Execute(fmt.Sprintf("vim %s", tmpfile.Name()))
-	if err != nil {
-		cell.result = fmt.Sprintf("Error editing with vim: %v", err)
+	// Suspend the application
+	a.app.Suspend(func() {
+		// Save current terminal state
+		oldState, err := term.GetState(int(os.Stdin.Fd()))
+		if err != nil {
+			fmt.Printf("Error getting terminal state: %v\n", err)
+			return
+		}
+
+		// Ensure we restore the terminal state before returning
+		defer term.Restore(int(os.Stdin.Fd()), oldState)
+
+		// Use aprocess.Execute to run vim
+		_, err = aprocess.Execute(fmt.Sprintf("vim %s", tmpfile.Name()))
+		if err != nil {
+			cell.result = fmt.Sprintf("Error editing with vim: %v", err)
+			a.updateView()
+			return
+		}
+
+		content, err := os.ReadFile(tmpfile.Name())
+		if err != nil {
+			cell.result = fmt.Sprintf("Error reading edited content: %v", err)
+		} else {
+			cell.content = string(content)
+			a.executeCurrentCell(false)
+		}
+
+
 		a.updateView()
-		return
-	}
 
-	content, err := os.ReadFile(tmpfile.Name())
-	if err != nil {
-		cell.result = fmt.Sprintf("Error reading edited content: %v", err)
-	} else {
-		cell.content = string(content)
-		a.executeCurrentCell()
-	}
+		
+	})
 
-	a.updateView()
+
 }
 
 func (a *App) copyCurrentCell() {
