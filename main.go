@@ -4,11 +4,11 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
+	"github.com/tluyben/go-in-the-shell/aprocess" 
 )
 
 type Cell struct {
@@ -140,7 +140,6 @@ func (a *App) moveDown() {
 		a.updateView()
 	}
 }
-
 func (a *App) executeCurrentCell() {
 	cell := &a.cells[a.currentCell]
 	content := cell.content
@@ -155,45 +154,41 @@ func (a *App) executeCurrentCell() {
 		}
 	}
 
-	// Create a temporary file
-	tmpfile, err := os.CreateTemp("", fmt.Sprintf("cell-*.%s", getFileExtension(language)))
-	if err != nil {
-		cell.result = fmt.Sprintf("Error creating temp file: %v", err)
-		a.updateView()
-		return
-	}
-	defer os.Remove(tmpfile.Name())
-
-	// Write content to the temporary file
-	if _, err := tmpfile.Write([]byte(content)); err != nil {
-		cell.result = fmt.Sprintf("Error writing to temp file: %v", err)
-		a.updateView()
-		return
-	}
-	tmpfile.Close()
-
-	// Execute the code based on the language
-	var cmd *exec.Cmd
+	// Prepare the command based on the language
+	var command string
 	switch language {
 	case "python":
-		cmd = exec.Command("python", tmpfile.Name())
+		command = fmt.Sprintf("python -c %q", content)
 	case "go":
-		cmd = exec.Command("go", "run", tmpfile.Name())
+		// For Go, we need to create a temporary file
+		tmpfile, err := os.CreateTemp("", "cell-*.go")
+		if err != nil {
+			cell.result = fmt.Sprintf("Error creating temp file: %v", err)
+			a.updateView()
+			return
+		}
+		defer os.Remove(tmpfile.Name())
+
+		if _, err := tmpfile.Write([]byte(content)); err != nil {
+			cell.result = fmt.Sprintf("Error writing to temp file: %v", err)
+			a.updateView()
+			return
+		}
+		tmpfile.Close()
+
+		command = fmt.Sprintf("go run %s", tmpfile.Name())
 	case "perl":
-		cmd = exec.Command("perl", tmpfile.Name())
+		command = fmt.Sprintf("perl -e %q", content)
 	default:
-		cmd = exec.Command("bash", "-c", content)
+		command = content
 	}
 
-	// Set the working directory to the current directory
-	cmd.Dir = "."
-
-	// Run the command and capture output
-	output, err := cmd.CombinedOutput()
+	// Execute the command using aprocess.Execute
+	output, err := aprocess.Execute(command)
 	if err != nil {
 		cell.result = fmt.Sprintf("Error: %v\n%s", err, output)
 	} else {
-		cell.result = string(output)
+		cell.result = output
 	}
 
 	// Move to the next cell or create a new one if at the end
@@ -204,9 +199,9 @@ func (a *App) executeCurrentCell() {
 
 	a.updateView()
 }
-
 func (a *App) editInline() {
 	a.inputField.SetText(a.cells[a.currentCell].content)
+	
 	a.app.SetRoot(a.inputField, true)
 }
 
@@ -234,14 +229,13 @@ func (a *App) editWithVim() {
 	}
 	tmpfile.Close()
 
-	cmd := exec.Command("vim", tmpfile.Name())
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	a.app.Suspend(func() {
-		cmd.Run()
-	})
+	// Use aprocess.Execute to run vim
+	_, err = aprocess.Execute(fmt.Sprintf("vim %s", tmpfile.Name()))
+	if err != nil {
+		cell.result = fmt.Sprintf("Error editing with vim: %v", err)
+		a.updateView()
+		return
+	}
 
 	content, err := os.ReadFile(tmpfile.Name())
 	if err != nil {
@@ -275,6 +269,7 @@ func (a *App) removeCurrentCell() {
 		a.updateView()
 	}
 }
+
 func getFileExtension(language string) string {
 	switch language {
 	case "python":
