@@ -86,7 +86,10 @@ func (a *App) Run() error {
 				a.editWithVim()
 			case '+':
 				a.copyCurrentCell()
+			case 'q': 
+				a.app.Stop()
 			}
+			
 		}
 		return event
 	})
