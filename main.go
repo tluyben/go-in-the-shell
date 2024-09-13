@@ -60,12 +60,12 @@ func (a *App) Run() error {
 		a.textView.SetTextColor(tcell.ColorWhite).SetBackgroundColor(tcell.ColorBlack)
 		a.inputField.SetFieldTextColor(tcell.ColorWhite).
 			SetFieldBackgroundColor(tcell.ColorBlack).
-			SetLabelColor(tcell.ColorWhite)
+			SetLabelColor(tcell.ColorBlack)
 	} else {
 		a.textView.SetTextColor(tcell.ColorBlack).SetBackgroundColor(tcell.ColorWhite)
 		a.inputField.SetFieldTextColor(tcell.ColorBlack).
 			SetFieldBackgroundColor(tcell.ColorWhite).
-			SetLabelColor(tcell.ColorBlack)
+			SetLabelColor(tcell.ColorWhite)
 	}
 
 	a.textView.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
@@ -238,9 +238,14 @@ func (a *App) executeCurrentCell(doSuspend bool) {
 
 }
 func (a *App) editInline() {
-	a.inputField.SetText(a.cells[a.currentCell].content)
-	
-	a.app.SetRoot(a.inputField, true)
+    a.inputField.SetText(a.cells[a.currentCell].content)
+    // Ensure the input field's background matches the mode
+    if a.darkMode {
+        a.inputField.SetBackgroundColor(tcell.ColorBlack)
+    } else {
+        a.inputField.SetBackgroundColor(tcell.ColorWhite)
+    }
+    a.app.SetRoot(a.inputField, true)
 }
 
 func (a *App) editWithVim() {
