@@ -153,8 +153,8 @@ func Execute(command string) (string, error) {
         return "", fmt.Errorf("empty command")
     }
 
-    cmd := exec.Command(args[0], args[1:]...)
-
+    //cmd := exec.Command(args[0], args[1:]...)
+    cmd := exec.Command("sh", "-c", command)
     ptmx, err := pty.Start(cmd)
     if err != nil {
         return "", fmt.Errorf("error creating pseudo-terminal: %v", err)
