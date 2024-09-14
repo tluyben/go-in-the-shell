@@ -146,24 +146,23 @@ func fdSet(fd int, p *syscall.FdSet) {
 func fdIsSet(fd int, p *syscall.FdSet) bool {
     return p.Bits[fd/64]&(1<<(uint(fd)%64)) != 0
 }
-
 func Execute(command string) (string, error) {
-    args := strings.Fields(command)
-    if len(args) == 0 {
+    if command == "" {
         return "", fmt.Errorf("empty command")
     }
 
-    //cmd := exec.Command(args[0], args[1:]...)
+    // Run the command through the shell
     cmd := exec.Command("sh", "-c", command)
+
     ptmx, err := pty.Start(cmd)
     if err != nil {
         return "", fmt.Errorf("error creating pseudo-terminal: %v", err)
     }
-    defer ptmx.Close()
+    defer func() { _ = ptmx.Close() }()
 
     width, height, err := term.GetSize(int(os.Stdout.Fd()))
     if err != nil {
-        return "", fmt.Errorf("error getting terminal size: %v", err)
+        width, height = 80, 24 // Default size if unable to get terminal size.
     }
 
     ch := make(chan os.Signal, 1)
@@ -175,86 +174,43 @@ func Execute(command string) (string, error) {
             }
         }
     }()
-    ch <- syscall.SIGWINCH
+    ch <- syscall.SIGWINCH // Initial resize.
 
     oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
     if err != nil {
         return "", fmt.Errorf("error setting raw mode: %v", err)
     }
-    defer term.Restore(int(os.Stdin.Fd()), oldState)
+    defer func() { _ = term.Restore(int(os.Stdin.Fd()), oldState) }()
 
     screen := NewScreen(width, height)
     var wg sync.WaitGroup
 
+    // Wait for the command to finish
     cmdDone := make(chan struct{})
+    go func() {
+        _ = cmd.Wait()
+        close(cmdDone)
+    }()
+
+   
     // Handle input
     wg.Add(1)
     go func() {
         defer wg.Done()
-        stdinFd := int(os.Stdin.Fd())
-        ptmxFd := int(ptmx.Fd())
-
-        for {
-            // Set up the file descriptor sets
-            var readFds syscall.FdSet
-            //readFds.Set(stdinFd)
-	    fdSet(stdinFd, &readFds)
-            // Set a timeout for select
-            timeout := syscall.Timeval{Sec: 0, Usec: 100000} // 100ms
-
-            // Use select to wait for input or timeout
-            n, err := syscall.Select(stdinFd+1, &readFds, nil, nil, &timeout)
-            if err != nil {
-                // Handle error
-                return
-            }
-	    if n > 0 && fdIsSet(stdinFd, &readFds) {
-                // Data is available on os.Stdin
-                buf := make([]byte, 1024)
-                nr, err := syscall.Read(stdinFd, buf)
-                if err != nil {
-                    // Handle error
-                    return
-                }
-                if nr > 0 {
-                    nw, err := syscall.Write(ptmxFd, buf[:nr])
-                    if err != nil {
-                        // Handle error
-                        return
-                    }
-                    if nw != nr {
-                        // Handle partial write
-                        return
-                    }
-                }
-            }
-
-            // Check if the command has finished
-            select {
-            case <-cmdDone:
-                return
-            default:
-            }
-        }
+        _, _ = io.Copy(ptmx, os.Stdin)
     }()
 
     // Handle output
     wg.Add(1)
     go func() {
         defer wg.Done()
-        io.Copy(io.MultiWriter(os.Stdout, screen), ptmx)
-    }()
-
-    // Wait for the command to finish
-    go func() {
-        cmd.Wait()
-        close(cmdDone)
+        _, _ = io.Copy(io.MultiWriter(os.Stdout, screen), ptmx)
     }()
 
     // Close ptmx when the command is done
     go func() {
         <-cmdDone
-        ptmx.Close()
+        _ = ptmx.Close()
     }()
 
     // Wait for all goroutines to finish
